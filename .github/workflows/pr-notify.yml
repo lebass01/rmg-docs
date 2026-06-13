@@ -7,9 +7,7 @@ on:
 jobs:
   notify:
     runs-on: ubuntu-latest
-    if: >-
-      github.event.action != 'edited' ||
-      !contains(toJSON(github.event.changes), 'base')
+    if: github.event.action != 'edited' || contains(toJSON(github.event.changes), 'base') == false
 
     steps:
       - name: Send notification to Teams
@@ -42,22 +40,36 @@ jobs:
               ;;
           esac
 
-          TEXT="PR ${STATUS}
-
-          Repo: ${REPO}
-          Title: ${TITLE}
-          Author: ${AUTHOR}"
-
-          if [ "$STATUS" = "Merged" ]; then
-            TEXT="${TEXT}
-          Merged by: ${ACTOR}"
-          fi
-
-          TEXT="${TEXT}
-
-          ${URL}"
-
-          jq -n --arg text "$TEXT" '{text: $text}' \
+          jq -n \
+            --arg status "$STATUS" \
+            --arg repo "$REPO" \
+            --arg title "$TITLE" \
+            --arg author "$AUTHOR" \
+            --arg actor "$ACTOR" \
+            --arg url "$URL" \
+            '{
+              type: "message",
+              attachments: [{
+                contentType: "application/vnd.microsoft.card.adaptive",
+                content: {
+                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  type: "AdaptiveCard",
+                  version: "1.4",
+                  body: (
+                    [
+                      { type: "TextBlock", text: ("PR " + $status), weight: "Bolder", size: "Medium" },
+                      { type: "TextBlock", text: ("Repo: " + $repo), wrap: true },
+                      { type: "TextBlock", text: ("Title: " + $title), wrap: true },
+                      { type: "TextBlock", text: ("Author: " + $author), wrap: true }
+                    ]
+                    + (if $status == "Merged"
+                       then [{ type: "TextBlock", text: ("Merged by: " + $actor), wrap: true }]
+                       else [] end)
+                    + [{ type: "TextBlock", text: $url, wrap: true }]
+                  )
+                }
+              }]
+            }' \
           | curl -fsS -X POST "$WEBHOOK_URL" \
               -H "Content-Type: application/json" \
               -d @-

@@ -1,4 +1,4 @@
-name: PR Notifications to Teams
+name: PR Notifications
 
 on:
   pull_request:
@@ -9,12 +9,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Send PR notification to Microsoft Teams
+      - name: Send notification to Teams
         run: |
-          # Determine PR status
           if [ "${{ github.event.action }}" = "closed" ]; then
             if [ "${{ github.event.pull_request.merged }}" = "true" ]; then
               STATUS="✅ Merged"
             else
               STATUS="❌ Closed"
             fi
+          elif [ "${{ github.event.action }}" = "opened" ]; then
+            STATUS="🚀 Opened"
+          elif [ "${{ github.event.action }}" = "reopened" ]; then
+            STATUS="🔄 Reopened"
+          fi
+
+          MESSAGE="PR ${STATUS}\n\nRepo: ${{ github.repository }}\nTitle: ${{ github.event.pull_request.title }}\nAuthor: ${{ github.actor }}\n\n${{ github.event.pull_request.html_url }}"
+
+          curl -X POST "${{ secrets.CHAT_WEBHOOK_URL }}" \
+          -H "Content-Type: application/json" \
+          -d "{\"text\": \"${MESSAGE}\"}"

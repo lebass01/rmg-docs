@@ -1,0 +1,63 @@
+name: PR Notifications
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, closed]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.action != 'edited' ||
+      !contains(toJSON(github.event.changes), 'base')
+
+    steps:
+      - name: Send notification to Teams
+        env:
+          WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          ACTION: ${{ github.event.action }}
+          MERGED: ${{ github.event.pull_request.merged }}
+          REPO: ${{ github.repository }}
+          TITLE: ${{ github.event.pull_request.title }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          ACTOR: ${{ github.actor }}
+          URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          case "$ACTION" in
+            opened)
+              STATUS="Opened"
+              ;;
+            edited|synchronize)
+              STATUS="Updated"
+              ;;
+            reopened)
+              STATUS="Reopened"
+              ;;
+            closed)
+              if [ "$MERGED" = "true" ]; then
+                STATUS="Merged"
+              else
+                STATUS="Closed"
+              fi
+              ;;
+          esac
+
+          TEXT="PR ${STATUS}
+
+          Repo: ${REPO}
+          Title: ${TITLE}
+          Author: ${AUTHOR}"
+
+          if [ "$STATUS" = "Merged" ]; then
+            TEXT="${TEXT}
+          Merged by: ${ACTOR}"
+          fi
+
+          TEXT="${TEXT}
+
+          ${URL}"
+
+          jq -n --arg text "$TEXT" '{text: $text}' \
+          | curl -fsS -X POST "$WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d @-

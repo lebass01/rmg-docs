@@ -2,29 +2,62 @@ name: PR Notifications
 
 on:
   pull_request:
-    types: [opened, closed, reopened]
+    types: [opened, edited, synchronize, reopened, closed]
 
 jobs:
   notify:
     runs-on: ubuntu-latest
+    if: >-
+      github.event.action != 'edited' ||
+      !contains(toJSON(github.event.changes), 'base')
 
     steps:
       - name: Send notification to Teams
+        env:
+          WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          ACTION: ${{ github.event.action }}
+          MERGED: ${{ github.event.pull_request.merged }}
+          REPO: ${{ github.repository }}
+          TITLE: ${{ github.event.pull_request.title }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          ACTOR: ${{ github.actor }}
+          URL: ${{ github.event.pull_request.html_url }}
         run: |
-          if [ "${{ github.event.action }}" = "closed" ]; then
-            if [ "${{ github.event.pull_request.merged }}" = "true" ]; then
-              STATUS="✅ Merged"
-            else
-              STATUS="❌ Closed"
-            fi
-          elif [ "${{ github.event.action }}" = "opened" ]; then
-            STATUS="🚀 Opened"
-          elif [ "${{ github.event.action }}" = "reopened" ]; then
-            STATUS="🔄 Reopened"
+          case "$ACTION" in
+            opened)
+              STATUS="Opened"
+              ;;
+            edited|synchronize)
+              STATUS="Updated"
+              ;;
+            reopened)
+              STATUS="Reopened"
+              ;;
+            closed)
+              if [ "$MERGED" = "true" ]; then
+                STATUS="Merged"
+              else
+                STATUS="Closed"
+              fi
+              ;;
+          esac
+
+          TEXT="PR ${STATUS}
+
+          Repo: ${REPO}
+          Title: ${TITLE}
+          Author: ${AUTHOR}"
+
+          if [ "$STATUS" = "Merged" ]; then
+            TEXT="${TEXT}
+          Merged by: ${ACTOR}"
           fi
 
-          MESSAGE="PR ${STATUS}\n\nRepo: ${{ github.repository }}\nTitle: ${{ github.event.pull_request.title }}\nAuthor: ${{ github.actor }}\n\n${{ github.event.pull_request.html_url }}"
+          TEXT="${TEXT}
 
-          curl -X POST "${{ secrets.CHAT_WEBHOOK_URL }}" \
-          -H "Content-Type: application/json" \
-          -d "{\"text\": \"${MESSAGE}\"}"
+          ${URL}"
+
+          jq -n --arg text "$TEXT" '{text: $text}' \
+          | curl -fsS -X POST "$WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d @-
